@@ -1,18 +1,25 @@
+import { FullNode } from "bcoin";
+import { Context } from "./apollo-server-bweb";
+
+type ResolverFunction = (root?: any, args?: any, context?: Context, info?: any) => {}
+interface ResolverMap {
+  [key: string]: { [key: string]: ResolverFunction}
+}
 // tslint:disable object-literal-sort-keys
 
-export function createResolvers(node) {
-  const resolvers = {
+export function createResolvers(node: FullNode) {
+  const resolvers: ResolverMap = {
     Query: {
-      Account (root, args, context, info) {},
-      Block (root, args, context, info) {},
-      Transaction (root, args, context, info) {}
+      Account: async  (root, args, context, info) => {},
+      Block: async (root, args, context, info) => {
+      },
+      Transaction: async (root, args, context, info) => {
+        context.node.getTX(args.hash)
+      }
     },
-    Account: {
-      Wallet() {}
+    Mutation: {
+      Wallet: async () => {}
     },
-    Transaction: {
-      Block () {}
-    }
   }
 
   return resolvers
