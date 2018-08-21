@@ -40,7 +40,7 @@ declare module 'bcoin' {
    * is supposed to represent that type going to change.
    * refs: https://github.com/bcoin-org/bcoin/issues/533
    */
-  type HashKey = string;
+  type HashKey = Buffer;
   export namespace blockchain {
     export class Chain extends AsyncEmitter {
       opened: boolean;
@@ -562,12 +562,25 @@ declare module 'bcoin' {
 
     export class CoinEntry {}
 
-    export class CoinView {}
+    export class CoinView extends BufferMap {
+      public map: BufferMap;
+      public undo: UndoCoins;
+      constructor();
+      ensure(hash: HashKey): Coins;
+      remove(hash: HashKey): Coins | null;
+      addTX(tx: TX, height: number): Coins;
+      removeTX(tx: TX, height: number): Coins;
+      addEntry(prevout: Outpoint, coin: CoinEntry): CoinEntry | null;
+      addCoin(coin: Coin): CoinEntry | null;
+      addOutput(prevout: Outpoint, output: Output): CoinEntry | null;
+    }
+    export class UndoCoins {}
   }
 
-  export type Coins = coins.Coins;
-  export type CoinEntry = coins.CoinEntry;
-  export type CoinView = coins.CoinView;
+  export class Coins extends coins.Coins {}
+  export class CoinEntry extends coins.CoinEntry {}
+  export class CoinView extends coins.CoinView {}
+  export class UndoCoins extends coins.UndoCoins {}
 
   export namespace hd {
     export class HDPrivateKey {}
@@ -591,14 +604,95 @@ declare module 'bcoin' {
   export type Mnemonic = hd.Mnemonic;
 
   export namespace mempool {
-    export class Fees {
-      public options: MempoolOptions;
-      constructor(options: MempoolOptions);
+    class ConfirmStats {
+      type: string;
+      decay: number;
+      maxConfirms: number;
+      buckets: Float64Array;
+      bucketMap: DoubleMap;
+      confAvg: number[];
+      curBlockConf: number[];
+      unconfTX: number[];
+      oldUnconfTx: Int32Array;
+      curBlockTX: Int32Array;
+      txAvg: Float64Array;
+      curBlockVal: Float64Array;
+      avg: Float64Array;
+      logger?: LoggerContext;
+      constructor(type: string, logger?: Logger);
+      init(buckets: any[], maxConfirms: number, decay: number);
+      clearCurrent(height: number): void;
+      record(blocks: number, val: Rate | number): void;
+      updateAverages(): void;
+      estimateMedian(
+        target: number,
+        needed: number,
+        breakpoint: number,
+        greater: boolean,
+        height: number
+      ): Rate | number;
+      addTX(height: number, val: number): number;
+      removeTX(
+        entryHeight: number,
+        bestHeight: number,
+        bucketIndex: number
+      ): void;
+      getSize(): number;
+      toRaw(): Buffer;
+      fromRaw(data: Buffer): ConfirmStats;
+      static fromRaw(data: Buffer, type: string, logger?: Logger): ConfirmStats;
     }
+
+    class DoubleMap {
+      public buckets: any[][];
+      constructor();
+      insert(key, value): void;
+      search(key: string): any;
+    }
+    class PolicyEstimator {
+      static VERSION: number;
+      public options: MempoolOptions;
+      logger: Logger;
+      minTrackedFee: number;
+      minTrackedPri: number;
+      feeStats: ConfirmStats;
+      priStats: ConfirmStats;
+
+      feeUnlikely: number;
+      feeLikely: number;
+      priUnlikely: number;
+      priLikely: number;
+      map: BufferMap;
+      bestHeight: number;
+      constructor(logger?: Logger);
+      private init(): void;
+      private reset(): void;
+      private removeTX(hash: HashKey): void;
+      isFeePoint(fee: Amount, priority: number): boolean;
+      isPriPoint(fee: Amount, priority: number): boolean;
+      processTX(entry: MempoolEntry, current: boolean): void;
+      processBlockTX(height: number, entry: MempoolEntry): void;
+      processBlock(
+        height: number,
+        entries: MempoolEntry[],
+        current: boolean
+      ): void;
+      estimateFee(target: number, smart: boolean): Rate;
+      estimatePriority(target: number, smart: boolean): number;
+      getSize(): number;
+      toRaw(): Buffer;
+      fromRaw(data: Buffer): ConfirmStats;
+      static fromRaw(data: Buffer, logger?: Logger): ConfirmStats;
+      inject(estimator: PolicyEstimator): PolicyEstimator;
+    }
+
+    export class Fees extends PolicyEstimator {}
 
     export class MempoolOptions {}
 
-    export class Mempool {}
+    export class Mempool {
+      constructor(options: MempoolOptions);
+    }
 
     export class MempoolEntry {}
   }
@@ -677,9 +771,61 @@ declare module 'bcoin' {
       get(name: string): BcoinPluginInstance | null;
     }
     export class FullNode extends Node {
+      opened: boolean;
+      spv: boolean;
+      chain: Chain;
+      fees: Fees;
+      mempool: Mempool;
+      pool: Pool;
+      miner: Miner;
+      rpc: RPC;
+      http: HTTP;
       constructor(options: ConfigOption);
-      [key: string]: any;
+      public open(): Promise<void>;
+      public close(): Promise<void>;
+      public scan(
+        start: number | HashKey,
+        filter: BloomFilter,
+        Function: blockchain.ScanIterator
+      ): Promise<void>;
+      private broadcast(item: TX | Block): Promise<void>;
+      /**
+       * Try to broadcast tx.
+       */
+      public sendTX(tx: TX): Promise<void>;
+      /**
+       * Same with `sendTX` , but silence error.
+       * @param tx
+       */
+      public relay(tx: TX): Promise<void>;
+      public startSync(): any;
+      public stopSync(): any;
+      /**
+       * Proxy for chain.getBlock
+       * @param hash
+       */
+      getBlock(hash: HashKey): Promise<Block>;
+      /**
+       * Retrieve a coin from the mempool or chain database.
+       * Takes into account spent coins in the mempool.
+       * @param hash
+       * @param index
+       */
+      getCoin(hash: HashKey, index: number): Promise<Coin | null>;
+      getCoinsByAddress(addrs: Address[]): Promise<Coin[]>;
+      getMetaByAddress(addrs: Address[]): Promise<primitives.TXMeta[]>;
+      getMeta(hash: HashKey): Promise<primitives.TXMeta>;
+      /**
+       * retrieve a spent coin viewpoint from mempool or chain database.
+       * @param meta - if meta.height is -1, then get from mempool.
+       */
+      getMetaView(meta: primitives.TXMeta): Promise<CoinView>;
+      getTXByAddress(addrs: Address[]): Promise<TX[]>;
+      getTX(hash: HashKey): Promise<TX>;
+      hasTX(hash: HashKey): Promise<boolean>;
     }
+
+    class RPC {}
 
     export class HTTPOptions {
       network: Network;
@@ -720,7 +866,7 @@ declare module 'bcoin' {
       version: number;
       hash: Buffer;
       constructor(options?: Partial<AddressOptions>);
-      fromOptions(options: AddressOptions);
+      fromOptions(options: AddressOptions): Address;
       static fromOptions(options: AddressOptions);
       public getHash(enc?: 'hex' | 'null'): Buffer;
       public isNull(): boolean;
@@ -800,9 +946,87 @@ declare module 'bcoin' {
     export type AddressTypeLowerCase = 'pubkeyhash' | 'scripthash' | 'witness';
     export class Block {}
 
-    export class TXMeta {}
+    export class TXMeta {
+      tx: TX;
+      mtime: number;
+      height: number;
+      block?: Buffer;
+      time: number;
+      index: number;
+      constructor(options?: Partial<TXMetaOptions>);
+      static fromOptions(options: Partial<TXMetaOptions>): TXMeta;
+      static fromTX(tx: TX, entry: TXMetaEntry, index: number): TXMeta;
+      public inspect(): TXMetaView;
+      public format(): TXMetaView;
+      public toJSON(): TXMetaJson;
+      public getJSON(): TXMetaJson;
+      static fromJSON(json: TXMetaView & primitives.TXJson): TXMeta;
+      getSize(): number;
+      toRaw(): Buffer;
+      private fromRaw(data: Buffer): TXMeta;
+      static fromRaw(data: Buffer, enc: 'hex' | 'null'): TXMeta;
+      static isTXMeta(obj: object): boolean;
+    }
 
-    export class Coin {}
+    interface TXMetaEntry {
+      height: number;
+      hash: Buffer;
+      time: number;
+    }
+
+    interface TXMetaView {
+      mtime: number;
+      height: number;
+      block: Buffer | null;
+      time: number;
+    }
+
+    type TXMetaJson = {
+      confirmations: number;
+    } & TXMetaView;
+
+    type TXMetaOptions = {
+      tx: TX;
+      index: number;
+    } & TXMetaView;
+
+    export class Coin extends Output {
+      version: number;
+      height: number;
+      coinbase: boolean;
+      hash: Buffer;
+      index: number;
+      script?: Script;
+      constructor(options?: Partial<CoinOptions>);
+      private clone(): Coin;
+      public getDepth(height?: number): number;
+      public toKey(): string;
+      static fromKey(key: string): Coin;
+      rhash(): Buffer;
+      txid(): Buffer;
+      inspect(): CoinOptions & {
+        address: Address | null;
+        type: script.common.typesByValLower;
+      };
+      toJSON(): CoinOptions & { address: Address | null };
+      getJSON(
+        network: NetworkType,
+        minmal?: boolean
+      ): CoinOptions & { address: Address | null };
+      private fromJSON(json: CoinOptions): Coin;
+      getSize(): number;
+      toWriter(bw: BufferWriter): BufferWriter;
+    }
+
+    export interface CoinOptions {
+      version: number;
+      height: number;
+      value: Amount;
+      script: ScriptOptions;
+      coinbase: boolean;
+      hash: Buffer;
+      index: number;
+    }
 
     export class Headers extends AbstractBlock {
       constructor(options: BlockHeaderOpts);
@@ -869,6 +1093,8 @@ declare module 'bcoin' {
     export class Output {}
 
     export class TX {}
+
+    export class TXJson {}
   }
 
   export type Address = primitives.Address;
@@ -1403,12 +1629,12 @@ declare module 'bcoin' {
         ONLY_STANDARD_VERIFY_FLAGS = 65502
       }
 
-      export type hashType = {
-        ALL: 1;
-        NONE: 2;
-        SINGLE: 3;
-        ANYONECANPAY: 0x08;
-      };
+      export enum hashType {
+        ALL = 1,
+        NONE = 2,
+        SINGLE = 3,
+        ANYONECANPAY = 0x08
+      }
 
       export type hashTypeByVal = {
         1: 'ALL';
@@ -1443,6 +1669,17 @@ declare module 'bcoin' {
         0x81: 'WITNESSSCRIPTHASH';
         0x82: 'WITNESSPUBKEYHASH';
       };
+
+      export type typesByValLower =
+        | 'nonstandard'
+        | 'pubkey'
+        | 'pubkeyhash'
+        | 'scripthash'
+        | 'multisig'
+        | 'nulldata'
+        | 'witnessmalformed'
+        | 'witnessscripthash'
+        | 'witnesspubkeyhash';
 
       /**
        * check a signature is it holds valid sighash type or not.
