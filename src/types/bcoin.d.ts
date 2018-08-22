@@ -3,7 +3,7 @@
 // Definitions by: Joe Miyamoto <joemphilips@gmail.com>
 
 declare module 'bcoin' {
-  import { BloomFilter } from 'bfilter';
+  import { BloomFilter, RollingFilter } from 'bfilter';
   import { BufferWriter, BufferReader } from 'bufio';
   import { BufferMap } from 'buffer-map';
   import BN from 'bn.js';
@@ -12,8 +12,8 @@ declare module 'bcoin' {
   import Logger, { LoggerContext } from 'blgr';
   import * as bweb from 'bweb';
   import * as bclient from 'bclient';
-  import { DB, Batch } from 'bdb';
-  import { Lock } from 'bmutex';
+  import { DB, Batch, DBOptions, Bucket } from 'bdb';
+  import { Lock, MapLock } from 'bmutex';
   import Config, { ConfigOption } from 'bcfg';
   import LRU from 'blru';
 
@@ -58,7 +58,7 @@ declare module 'bcoin' {
       height: number;
       synced: boolean;
 
-      orphanMap: BufferMap;
+      orphanMap: BufferMap<Orphan>;
       orphanPrev: BufferMap;
 
       constructor(options?: Partial<ChainOptions>);
@@ -154,6 +154,67 @@ declare module 'bcoin' {
         block: Block,
         flags: number
       ): Promise<ChainEntry>;
+      private handleOrphans(entry: ChainEntry): Promise<void>;
+      private isSlow(): boolean;
+      private logStatus(
+        start: [number, number],
+        block: Block,
+        entry: ChainEntry
+      ): void;
+      private verifyCheckpoint(prev: ChainEntry, hash: Buffer): boolean;
+      private storeOrphan(block: Block, flags?: number, id?: number): void;
+      private addOrphan(orphan: Orphan): Orphan;
+      private removeOrphan(orphan: Orphan): Orphan;
+      private hasNextOrphan(hash: Buffer): Orphan;
+      private resolveOrphan(hash: Buffer): null | Orphan;
+      public purgeOrphans(): null;
+      public limitOrphans(): null;
+      private hasInvalid(block: Block): boolean;
+      private setInvalid(hash: Buffer): void;
+      private removeInvalid(hash: Buffer): void;
+      /**
+       * Search chain (including orphans, invalids) to see if it has a block
+       * @param hash - Block hash
+       */
+      public has(hash: Buffer): Promise<boolean>;
+      public getEntry(hashOrHeight: Buffer | number): ChainEntry | null;
+      public getHash(height: number): Buffer | null;
+      public getHeight(hash: Buffer): number;
+      public hasEntry(hash: Buffer): Promise<boolean>;
+      public getNextHash(hash: Buffer): Promise<Buffer | null>;
+      public hasCoins(tx: TX): Promise<boolean>;
+      public getTips(): Promise<Buffer[]>;
+      public getHashes(start?: number, end?: number): Promise<Buffer[] | null>;
+      private readCoin(prevOut: Outpoint): Promise<CoinEntry | null>;
+      public getCoin(hash: Buffer, index: number): Promise<Coin | null>;
+      public getBlock(hash: Buffer): Promise<Block | null>;
+      public getRawBlock(hash: Buffer): Promise<Buffer | null>;
+      public getBlockView(block: Block): Promise<CoinView>;
+      public getMeta(hash: Buffer): Promise<primitives.TXMeta | null>;
+      public getTX(hash: Buffer): Promise<primitives.TX | null>;
+      public hasTX(hash: Buffer): Promise<boolean>;
+      public getCoinsByAddress(addrs: Address[]): Promise<Coin[] | null>;
+      public getHashesByAddress(addrs: Address[]): Promise<Buffer[] | null>;
+      public getTXByAddress(addrs: Address[]): Promise<TX[] | null>;
+      public getMetaByAddress(
+        addrs: Address[]
+      ): Promise<primitives.TXMeta[] | null>;
+      public getOrphan(hash: Buffer): Block | null;
+      public hasOrphan(hash: Buffer): boolean;
+      public hasPending(hash: Buffer): boolean;
+      public getCoinView(tx: TX): Promise<CoinView>;
+      public getSpentView(tx: TX): Promise<CoinView>;
+      /**
+       * Test the chain if it is fully synced
+       */
+      public isFull(): boolean;
+      /**
+       * Check if chain is synced.
+       * If it is, emit `"full"` event and set `this.synced` to `true`
+       */
+      private maybeSync(): void;
+      public hasChainWork(): boolean;
+
       public getProgress(): number;
       /**
        * Calculate chain locator (array of hashes).
@@ -233,6 +294,8 @@ declare module 'bcoin' {
         flags: common.lockFlags
       ): Promise<boolean>;
     }
+
+    class Orphan {}
 
     export namespace common {
       /**
@@ -544,8 +607,8 @@ declare module 'bcoin' {
     }
   }
 
-  export type Chain = blockchain.Chain;
-  export type ChainEntry = blockchain.ChainEntry;
+  export class Chain extends blockchain.Chain {}
+  export class ChainEntry extends blockchain.ChainEntry {}
 
   export namespace btc {
     export class Amount {}
@@ -688,20 +751,226 @@ declare module 'bcoin' {
 
     export class Fees extends PolicyEstimator {}
 
-    export class MempoolOptions {}
-
     export class Mempool {
-      constructor(options: MempoolOptions);
+      opened: boolean;
+      options: MempoolOptions;
+      network: Network;
+      logger: LoggerContext;
+      workers: WorkerPool;
+      chain: Chain;
+      fees: Fees;
+      locker: Lock;
+
+      cache: MempoolCache;
+      size: number;
+      freeCount: number;
+      lastTime: number;
+      lastFlush: number;
+      tip: Buffer;
+      waiting: BufferMap;
+      orphans: BufferMap;
+      map: BufferMap;
+      spents: BufferMap;
+      rejects: RollingFilter;
+      coinIndex: CoinIndex;
+      txIndex: TXIndex;
+
+      constructor(options: MempoolArgument);
+
+      public open(): Promise<void>;
+      public close(): Promise<void>;
+      public addBlock(block: ChainEntry, txs: TX[]): Promise<void>;
+      /**
+       * Notify the mempool that a block has been disconnected
+       * fro the main chain (reinserts transactions into the mempool)
+       * @param block
+       * @param txs
+       */
+      public removeBlock(block: ChainEntry, txs: TX[]): Promise<void>;
+      public _handleReorg(): Promise<void>;
+      public reset(): Promise<void>;
+      public limitSize(added: MempoolEntry): Promise<boolean>;
+      public getTX(hash: Buffer): TX | null;
+      public getEntry(hash: Buffer): MempoolEntry | null;
+      public getCoin(hash: Buffer, index: number): Coin | null;
+      /**
+       * Check to see if a coin has been spent.
+       * @param hash
+       * @param index
+       */
+      public isSpent(hash: Buffer, index: number): boolean;
+      public getSpent(hash: Buffer, index: number): MempoolEntry | null;
+      public getSpentTX(hash: Buffer, index: number): TX | null;
+      public getCoinsByAddress(addrs: Address[]): Coin[];
+      public getTXByAddress(addrs: Address[]): TX[];
+      public getMetaByAddress(addrs: Address[]): primitives.TXMeta[];
+      public getMeta(hash: Buffer): primitives.TXMeta | null;
+      /**
+       * check if tx exists in mempool
+       * @param hash - txid
+       */
+      public hasEntry(hash: Buffer): boolean;
+      /**
+       * similar to hasEntry, but checks for orphans too
+       * @param hash
+       */
+      public has(hash: Buffer): boolean;
+      /**
+       * check if has been rejected recently
+       * @param hash
+       */
+      public hasReject(hash: Buffer): boolean;
+      /**
+       * This will lock the mempool until the transaction is fully processed.
+       * It will returns an Array of missing input tx id if fails.
+       */
+      public addTX(tx: TX, id?: number): Promise<null | Buffer[]>;
+      public verify(entry: TX, view: CoinView): Promise<void>;
+      /**
+       * verify TX but without throwing error.
+       * */
+      public verifyResult(
+        tx: TX,
+        view: CoinView,
+        flags: script.common.flags
+      ): Promise<boolean>;
+      private verifyInputs(
+        tx: TX,
+        view: CoinView,
+        flags: script.common.flags
+      ): Promise<void>;
+      private addEntry(entry: MempoolEntry, view: CoinView): Promise<void>;
+      /**
+       * Generally called when new block is added to the main chain.
+       * @param entry
+       */
+      private removeEntry(entry: MempoolEntry): void;
+      /**
+       * remove entry from the mempool ad recursively remove
+       * spenders
+       */
+      public evictEntry(entry: MempoolEntry): void;
+      private removeSpenders(entry: MempoolEntry): void;
+      public countAncestors(entry: MempoolEntry): number;
+      private updateAncestors(entry: MempoolEntry, map: Function): number;
+      public countDescendants(entry: MempoolEntry): number;
+      public getAncestors(entry: MempoolEntry): MempoolEntry[];
+      public getDescendants(entry: MempoolEntry): MempoolEntry[];
+      /**
+       * Find a unconfirmed transactions that this transaction depends on.
+       */
+      public getDepends(tx: TX): Buffer[];
+      public hasDepends(tx: TX): boolean;
+      /**
+       * get the full balance of all unspents in the mempool
+       * (Useful for testing)
+       */
+      public getBalance(): Amount;
+      public getHistory(): TX[];
+      private getOrphan(hash: Buffer): TX;
+      hasOrphan(hash: Buffer): boolean;
+      private maybeOrphan(tx: TX, view: CoinView, id: number): null | Buffer[];
+      public handleOrphans(parent: TX): Promise<TX[]>;
+      private resolveOrphan(parent): Orphan[];
+      private removeOrphan(hash: Buffer): boolean;
+      private limitOrphans(): boolean;
+      public isDoubleSpend(tx: TX): Promise<boolean>;
+      /**
+       * getCoinView with lock.
+       */
+      public getSpentView(tx: TX): Promise<CoinView>;
+      private getCoinView(tx: TX): Promise<CoinView>;
+      /**
+       * Get all txid in the mempool.
+       * Used for answering to MEMPOOL packets
+       */
+      public getSnapshot(): Buffer[];
+      /**
+       * Verify Sequence locks
+       * @param tx
+       * @param view
+       * @param flags
+       */
+      public verifyLocks(
+        tx: TX,
+        view: CoinView,
+        flags: blockchain.common.lockFlags
+      );
+      public verifyFinal(tx: TX, flags: blockchain.common.lockFlags);
+      private trackEntry(entry: MempoolEntry, view: CoinView): any;
+      private untrackEntry(entry: MempoolEntry, view: CoinView): any;
+      private indexEntry(entry: MempoolEntry, view: CoinView): void;
+      private removeDoubleSpends(tx): void;
+      public getSize(): number;
+      public prioritise(entry: MempoolEntry, pri: number, fee: Amount): void;
     }
+
+    export type MempoolArgument = {
+      chain: Chain; // mempool requires blockchain
+    } & Partial<MempoolOptions>;
+
+    export class MempoolOptions {
+      network: Network;
+      chain: Chain;
+      logger: Logger;
+      workers: WorkerPool;
+      fees?: Fees;
+      limitFree: boolean;
+      limitFreeRelay: number;
+      relayPriority: boolean;
+      requireStandard: boolean;
+      rejectAbsurdFees: number;
+      prematureWitness: boolean;
+      paranoidChecks: boolean;
+      replaceByFee: boolean;
+      maxSize: number;
+      masOrphans: number;
+      maxAncestors: number;
+      expiryTime: number;
+      minRelay: number;
+      prefix?: string;
+      location?: string;
+      memory: boolean;
+      maxFiles: number;
+      cacheSize: number;
+      compression: boolean;
+      persistent: boolean;
+      constructor(options: MempoolArgument);
+      static fromOptions(options: MempoolArgument): MempoolOptions;
+    }
+
+    class TXIndex {
+      index: BufferMap;
+      map: BufferMap;
+      constructor();
+      reset(): void;
+      get(addr: Buffer): TX[];
+      getMeta(addr: Buffer): primitives.TXMeta[];
+      insert(entry: primitives.TXMeta, view?: CoinView): void;
+      remove(hash: Buffer): void;
+    }
+
+    class CoinIndex {
+      index: BufferMap;
+      map: BufferMap;
+      constructor();
+      reset(): void;
+      get(addr: Buffer): Coin[];
+      insert(tx: TX, index: number): void;
+      remove(hash: Buffer, index: number): void;
+    }
+
+    class Orphan {}
+    class MempoolCache {}
 
     export class MempoolEntry {}
   }
 
-  export type Fees = mempool.Fees;
+  export class Fees extends mempool.Fees {}
 
-  export type Mempool = mempool.Mempool;
+  export class Mempool extends mempool.Mempool {}
 
-  export type MempoolEntry = mempool.MempoolEntry;
+  export class MempoolEntry extends mempool.MempoolEntry {}
 
   export namespace mining {
     export class Miner {}
@@ -1097,18 +1366,18 @@ declare module 'bcoin' {
     export class TXJson {}
   }
 
-  export type Address = primitives.Address;
-  export type Block = primitives.Block;
-  export type Coin = primitives.Coin;
-  export type Headers = primitives.Headers;
-  export type Input = primitives.Input;
-  export type InvItem = primitives.InvItem;
-  export type KeyRing = primitives.KeyRing;
-  export type MerkleBlock = primitives.MerkleBlock;
-  export type MTX = primitives.MTX;
-  export type Outpoint = primitives.Outpoint;
-  export type Output = primitives.Output;
-  export type TX = primitives.TX;
+  export class Address extends primitives.Address {}
+  export class Block extends primitives.Block {}
+  export class Coin extends primitives.Coin {}
+  export class Headers extends primitives.Headers {}
+  export class Input extends primitives.Input {}
+  export class InvItem extends primitives.InvItem {}
+  export class KeyRing extends primitives.KeyRing {}
+  export class MerkleBlock extends primitives.MerkleBlock {}
+  export class MTX extends primitives.MTX {}
+  export class Outpoint extends primitives.Outpoint {}
+  export class Output extends primitives.Output {}
+  export class TX extends primitives.TX {}
 
   export namespace protocol {
     export interface consensus {}
@@ -1146,8 +1415,8 @@ declare module 'bcoin' {
       rpcPort: number;
       walletPort: number;
       minRelay: number;
-      feeRate: number;
-      maxFeeRate: number;
+      feeRate: Rate;
+      maxFeeRate: Rate;
       selfConnect: boolean;
       requestMempool: boolean;
       time: TimeData;
@@ -1231,8 +1500,8 @@ declare module 'bcoin' {
       rpcPort: number;
       walletPort: number;
       minRelay: number;
-      feeRate: number;
-      maxFeeRate: number;
+      feeRate: Rate;
+      maxFeeRate: Rate;
       selfConnect: boolean;
       requestMempool: boolean;
     }
@@ -1751,9 +2020,9 @@ declare module 'bcoin' {
       private fundLock: Lock;
       static fromOptions(
         wdb: WalletDB,
-        options?: Partial<WalletOptions>
+        options?: Partial<WalletArgument>
       ): Wallet;
-      constructor(wdb: WalletDB, options?: Partial<WalletOptions>);
+      constructor(wdb: WalletDB, options?: Partial<WalletArgument>);
       public init(
         options: AccountOptions,
         passphrase: Passphrase
@@ -2046,7 +2315,7 @@ declare module 'bcoin' {
       public getCoinView(tx): Promise<CoinView>;
       public getSpentView(tx: TX): Promise<CoinView>;
 
-      public toDetails(wtx: TXRecord): Promise<Details>;
+      public toDetails(wtx: records.TXRecord): Promise<Details>;
       /**
        * retrieve tx from txdb before calling `toDetails`
        * @param hash
@@ -2060,7 +2329,7 @@ declare module 'bcoin' {
        * @param tx
        * @param block
        */
-      public add(tx: TX, block: BlockMeta);
+      public add(tx: TX, block: records.BlockMeta);
 
       /**
        * revert wallet state to `height`
@@ -2177,11 +2446,8 @@ declare module 'bcoin' {
     }
 
     interface BalanceJSON {}
-
-    interface TXRecord {}
     interface BlockRecord {}
 
-    interface BlockMeta {}
     interface Details {}
 
     interface Credit {}
@@ -2229,7 +2495,7 @@ declare module 'bcoin' {
       locktime?: number;
     };
 
-    export interface WalletOptions {
+    export interface WalletArgument {
       master: MasterKey | string;
       mnemonic: Partial<hd.MnemonicOptions>;
       wid: WID;
@@ -2271,13 +2537,19 @@ declare module 'bcoin' {
     export class HTTPOptions extends node.HTTPOptions {
       walletAuth: boolean;
     }
+
+    /**
+     * has same API with `WalletClient` but it works for local node.
+     */
+    export class NodeClient {}
+
     /**
      * defined as `WalletClient` internally.
      * client for wallet to communicate with the node
      */
-    export class Client extends bclient.NodeClient {}
+    export class WalletClient extends bclient.NodeClient {}
 
-    export class NodeClient {}
+    export class Client extends WalletClient {}
     export class TXDB {}
     export class MasterKey {}
     export class Account {
@@ -2301,8 +2573,285 @@ declare module 'bcoin' {
     }
     export class WalletKey {}
     export class Path {}
-    export class WalletDB {}
+    export class WalletDB {
+      options: WalletOptions;
+      network: Network;
+      logger: LoggerContext;
+      workers: WorkerPool;
+      client: NodeClient | NullClient;
+      feeRate: Rate;
+      db: DB;
+      primary: null | Wallet; // set when open()'d
+      state: records.ChainState;
+      height: number;
+      wallets: Map<WID, Wallet>;
+      depth: number;
+      rescanning: boolean;
+      filterSent: boolean;
+      readLock: MapLock;
+      writeLock: Lock;
+      filter: BloomFilter;
+      constructor(options?: Partial<WalletOptions> & Partial<DBOptions>);
+      public open(): Promise<void>;
+      /**
+       * Check if this.network and network info saved to db
+       * is consistent.
+       */
+      private verifyNetwork(): Promise<void>;
+      public close(): Promise<void>;
+      public disconnect(): Promise<void>;
+      /**
+       * Set all address hashes and outpoint from db to `this.filter`
+       */
+      private watch(): Promise<void>;
+      private connect(): Promise<void>;
+      /**
+       * Sync state with the node server. Runs
+       * 1. syncState
+       * 2. syncFilter
+       * 3. syncChain
+       * 4. resend
+       * This will start automatically when client has connected to the node.
+       */
+      private syncNode(): Promise<void>;
+      private syncState(): Promise<void>;
+      private migrateState(state: records.ChainState): Promise<void>;
+      private syncChain(): Promise<void>;
+      private scan(height?: number): Promise<void>;
+      /**
+       * Force rescan with a lock.
+       * @param height
+       */
+      public rescan(height: number): Promise<void>;
+      public send(tx: TX): Promise<void>;
+      /**
+       * If `this.feeRate` is greater than 0, return that.
+       * Otherwise asks it to the node.
+       * @param block - confirmation number
+       */
+      public estimateFee(block: number): Promise<Rate>;
+      /**
+       * Send filter to the remote node.
+       */
+      private syncFilter(): Promise<void>;
+      /**
+       * Add filter to the remote node
+       * @param data
+       */
+      private addFilter(data): Promise<void>;
+      /**
+       * Reset remote filter
+       */
+      private resetFilter(): Promise<void>;
+      /**
+       * Backup the wallet db.
+       * @param path
+       */
+      public backup(path: string): Promise<void>;
+      /**
+       * Wipe the txdb
+       */
+      public wipe(): Promise<void>;
+      /**
+       * Get current wallet wid depth (i.e. number of wallet ids hold.)
+       */
+      private getDepth(): Promise<void>;
+      private testFilter(data: Buffer): boolean;
+      private addhash(hash: Buffer): void;
+      private addOutpoint(hash: Buffer, index: number): void;
+      private dump(): Promise<void>;
+      /**
+       * Register an object with the walletdb.
+       * used by this.ensure, this.get, this.create
+       */
+      private register(wallet: Wallet): void;
+      private unregister(wallet: Wallet): void;
+      /**
+       * Convert id to wid.
+       * @param id
+       */
+      private ensureWID(id: string | number): number;
+      /**
+       * Convert wid to id
+       * @param id
+       */
+      private getID(id: string | number): string;
+      public get(id: number | string): Promise<Wallet | null>;
+      public save(b: DB | Batch, wallet: Wallet);
+      public increment(b: Batch, wid: WID): void;
+      public rename(wallet: Wallet, id: string): Promise<void>;
+      public renameAccount(b: Batch | DB, account: Account, name: string): void;
+      /**
+       * Remove wallet.
+       * @param id
+       */
+      public remove(id: number | string): Promise<void>;
+      /**
+       * Get wallet with token auth first
+       */
+      public auth(id: number | string, token: Buffer): Promise<Wallet | null>;
+      /**
+       * Create a new wallet
+       * Throws error if already exists.
+       * @param options
+       */
+      public create(options: Partial<WalletOptions>): Promise<Wallet>;
+      public has(id: number | string): Promise<boolean>;
+      /**
+       * Create a new wallet.
+       * return the wallet if already exists.
+       * @param options
+       */
+      public ensure(options: Partial<WalletOptions>): Promise<Wallet>;
+      private getAccount(wid: WID, index: number): Promise<Account | null>;
+      /**
+       * Get all accounts name
+       * @param wid
+       */
+      public getAccounts(wid: WID): string[];
+      public getAccountIndex(wid: WID, name: string): Promise<number>;
+      public getAccountName(wid: WID, index: number): Promise<string>;
+      public saveAccount(b: Batch | DB, account: Account): Promise<void>;
+      public hasAccount(wid: WID, acctIndex: number): Promise<boolean>;
+      /**
+       * Save addresses to path map.
+       * @param b
+       * @param wallet
+       * @param ring
+       */
+      public saveKey(
+        b: DB | Batch,
+        wallet: Wallet,
+        ring: WalletKey
+      ): Promise<void>;
+      public savePath(b: DB | Batch, wid: WID, path: string): Promise<void>;
+      public getPath(wid: WID, hash: Buffer): Promise<Path | null>;
+      public readPath(wid: number, hash: Buffer): Promise<Path>;
+      public hasPath(wid: WID, hash: Buffer): Promise<boolean>;
+      /**
+       * Get all address hashes.
+       */
+      public getHashes(): Promise<Buffer[]>;
+      /**
+       * Get all Outpoints.
+       */
+      public getOutpoints(): Promise<Outpoint[]>;
+      /**
+       * Get all address hashes for wallet
+       */
+      public getWalletHashes(wid: WID): Promise<Buffer[]>;
+      public getAccountHashes(
+        wid: WID,
+        accountIndex: number
+      ): Promise<Buffer[]>;
+      public getWalletPaths(wid: WID): Promise<Path[]>;
+      public getWallets(): Promise<WID[]>;
+      public encryptKeys(b: Bucket | DB, wid: WID, key: Buffer): Promise<void>;
+      public decryptKeys(b: Bucket | DB, wid: WID, key: Buffer): Promise<void>;
+      /**
+       * resend every pending tx.
+       * @param wid
+       */
+      public resend(): Promise<void>;
+      /**
+       * resend every pending tx for specific wallet.
+       * @param wid
+       */
+      private resendPending(wid: WID): Promise<void>;
+      public getWalletsByTX(tx: Buffer): Promise<WID[] | null>;
+      public getState(): Promise<null | records.ChainState>;
+      public setTip(tip: records.BlockMeta): Promise<void>;
+      private markState(block: records.BlockMeta): Promise<void>;
 
+      // ----- MapRecord related methods ------
+      private getMap(key: Buffer): Promise<null | records.MapRecord>;
+      private addMap(
+        b: DB | Bucket | Batch,
+        key: Buffer,
+        wid: WID
+      ): Promise<void>;
+      private removeMap(
+        b: DB | Bucket | Batch,
+        key: Buffer,
+        wid: WID
+      ): Promise<void>;
+      private getPathMap(hash: Buffer): Promise<records.MapRecord | null>;
+      private addPathMap(
+        b: DB | Bucket | Batch,
+        key: Buffer,
+        wid: WID
+      ): Promise<void>;
+
+      private addTXMap(b: DB | Bucket | Batch, hash: Buffer, key: Buffer);
+      private addPathMap(
+        b: DB | Bucket | Batch,
+        hash: Buffer,
+        wid: WID
+      ): Promise<void>;
+      private addBlockMap(
+        b: DB | Bucket | Batch,
+        height: number,
+        wid: WID
+      ): Promise<void>;
+      private removeBlockMap(
+        b: DB | Bucket | Batch,
+        height: Buffer,
+        wid: WID
+      ): Promise<void>;
+      private getTXMap(hash: Buffer): Promise<null | records.MapRecord>;
+      // TODO: skipping a few of methods here ...
+      // -------------------
+
+      private getBlock(height: Buffer): Promise<null | records.BlockMeta>;
+      public getTip(): Promise<records.BlockMeta>;
+      private rollback(height: number): Promise<void>;
+      /**
+       * Revert txdb to older state
+       * @param target
+       */
+      private revert(target: number): Promise<void>;
+      /**
+       *
+       * @param entry
+       * @param txs
+       * @returns - number of TX added
+       */
+      private addBlock(entry: ChainEntry, txs: TX[]): Promise<number>;
+      private rescanBlock(entry: ChainEntry, txs: TX[]): Promise<void>;
+      public addTX(tx: TX): Promise<null | WID[]>;
+      public resetChain(entry: ChainEntry): Promise<void>;
+    }
+
+    export class WalletOptions {
+      network: Network;
+      logger: Logger;
+      workers?: WorkerPool;
+      client?: NodeClient;
+      feeRate?: number;
+      prefix?: string;
+      location?: string;
+      memory: boolean;
+      maxFiles: number;
+      cacheSize: number;
+      compression: boolean;
+      spv: boolean;
+      witness: boolean;
+      checkponts: boolean;
+      wipeNoReally: boolean;
+      constructor(options?: Partial<WalletOptions>);
+      static fromOptions(options: Partial<WalletOptions>);
+    }
+
+    class NullClient {}
+
+    export namespace records {
+      export class ChainState {}
+      export class BlockMeta {}
+
+      export class TXRecord {}
+
+      export class MapRecord {}
+    }
     /**
      * type emitted by walletdb
      */
@@ -2310,11 +2859,11 @@ declare module 'bcoin' {
     export type WalletEvent = 'address';
   }
 
-  export type Wallet = wallet.Wallet;
+  export class Wallet extends wallet.Wallet {}
 
-  export type Path = wallet.Path;
-  export type WalletKey = wallet.WalletKey;
-  export type WalletDB = wallet.WalletDB;
+  export class Path extends wallet.Path {}
+  export class WalletKey extends wallet.WalletKey {}
+  export class WalletDB extends wallet.WalletDB {}
 
   /// ------ worker ------
 
@@ -2426,14 +2975,15 @@ declare module 'bcoin' {
       enabled: boolean;
       /**
        * Number of cpu core to use.
+       * Default is all available cors in machine.
        */
-      size: number;
-      timeout: number;
+      size?: number;
+      timeout?: number;
       /**
        * defaults to `bcoin/lib/workers/worker.js`
        * You can configure this by `BCOIN_WORKER_FILE`
        */
-      file: string;
+      file?: string;
     }
 
     interface Worker {}

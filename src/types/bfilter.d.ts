@@ -10,4 +10,31 @@ declare module 'bfilter' {
     fromJSON(json: object, extra: any): IStruct;
     fromOptions(options: object, extra: any): IStruct;
   }
+
+  export class RollingFilter {
+    private entries: number;
+    private generation: number;
+    private n: number;
+    private limit: number;
+    private size: number;
+    private items: number;
+    private tweak: number;
+    private filter: Buffer;
+    /**
+     * @param items - Expected number of items
+     * @param rate - false positive rate
+     */
+    constructor(items: number | null, rate: number);
+    private fromRate(items: number, rate: number): RollingFilter;
+    static fromRate(items: number, rate: number): RollingFilter;
+    /**
+     * Perform murmur3 hash on data.
+     * @param value
+     * @param n
+     */
+    public hash(value: Buffer, n: number): Number;
+    public reset(): void;
+    public add(value: Buffer | string, enc?: string): void;
+    public test(value: Buffer | string, enc?: string): boolean;
+  }
 }

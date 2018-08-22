@@ -60,9 +60,20 @@ declare module 'bdb' {
     clear(): Promise<Batch>;
   }
 
-  export interface DBOptions {
+  export class DBOptions {
     createIfMissing: boolean;
-    errorIfExists;
+    errorIfExists: boolean;
+    compression: boolean;
+    cacheSize: number;
+    maxFiles: number;
+    maxFileSize: number;
+    paranoidChecks: boolean;
+    memory: boolean;
+    sync: boolean;
+    mapSize: number;
+    writeMap: boolean;
+    noSubdir: boolean;
+    constructor(options?: Partial<DBOptions>);
   }
 
   interface BatchOp {}
@@ -188,12 +199,24 @@ declare module 'bdb' {
 
   type ID = string | number;
   export class Key {
-    constructor(id: ID, ops?: string[]);
-    build(
-      id?: Buffer,
-      ...args: { getSize: Function; [key: string]: any }[] | null
-    ): Buffer;
-    parse(key: Key);
+    constructor(id: number | string, ops?: string[]);
+    encode(...args: any[]): any;
+    decode(key: Buffer): any;
+    min(...args: any[]): any;
+    max(...args: any[]): any;
+    root(...args: any[]): any;
+  }
+
+  class BaseKey {
+    constructor(ops?: string[]);
+    static create(ops?: string[]): BaseKey;
+    init(ops?: string[]): void;
+    getSize(): number;
+    encode(id: number, args?: any[]);
+    decode(id: number, key?: Buffer): any[];
+    min(id: number, args?: number): any;
+    max(id: number, args?: any[]): any;
+    root(id: number): Buffer;
   }
 
   export function create(

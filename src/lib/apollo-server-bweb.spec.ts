@@ -1,38 +1,84 @@
-import anyTest, { ExecutionContext, TestInterface } from 'ava'
-import { ConfigOption } from 'bcfg';
-import { FullNode } from 'bcoin';
+// tslint:disable ordered-imports
+import 'reflect-metadata';
+import { InMemoryCache } from 'apollo-cache-inmemory';
+import { ApolloClient } from 'apollo-client';
+import { HttpLink } from 'apollo-link-http';
+import { gql } from 'apollo-server-core';
+import anyTest, { ExecutionContext, TestInterface } from 'ava';
+import { Chain, Mempool, Network, WorkerPool } from 'bcoin';
+import { GraphQLSchema } from 'graphql';
+import { buildSchema } from 'type-graphql';
 import { ApolloServerBweb } from './apollo-server-bweb';
-import {TransactionResolver} from './types'
+import { TransactionResolver } from './types/transaction';
 
 const networkName = 'regtest';
+const network = Network.get(networkName);
 const apiKey = 'foo';
 
-const options: ConfigOption = {
-  network: networkName,
-  apiKey,
+// const fullNode = new FullNode(options);
+
+const workers = new WorkerPool({
+  enabled: true
+});
+
+const options = {
+  network,
   memory: true,
-  workers: true,
-  httpHost: '::'
+  workers
 };
 
-const fullNode = new FullNode(options);
-const resolvers = [TransactionResolver]
+const chain = new Chain({
+  ...options
+});
+const mempool = new Mempool({ chain, ...options });
 
-const server = new ApolloServerBweb(fullNode, resolvers)
+const resolvers = [TransactionResolver];
+
+const server = new ApolloServerBweb({ chain, mempool, resolvers });
 
 interface ApolloWebServerTestContext {
-  [key: string]: any
+  schema: GraphQLSchema;
+  client: ApolloClient<any>;
 }
 
-const test = anyTest as TestInterface<ApolloWebServerTestContext>
+const test = anyTest as TestInterface<ApolloWebServerTestContext>;
 
-test.before("open http", async (t: any) => {
-  await server.open()
-  await server.listen()
-})
+test.before(
+  'open http',
+  async (t: ExecutionContext<ApolloWebServerTestContext>) => {
+    await server.open();
+    await server.listen();
+    t.context.schema = await buildSchema({ resolvers });
+  }
+);
 
-test.after('close http', async (t: any) => {
-  await server.close()
-})
+test.after('close http', async () => {
+  await server.close();
+});
 
-test("apollo-server-bweb can run as standalone", async (t: ExecutionContext<ApolloWebServerTestContext>))
+test.beforeEach(
+  'prepare client',
+  async (t: ExecutionContext<ApolloWebServerTestContext>) => {
+    const httpLink = new HttpLink({
+      uri: 'http://localhost:4000',
+      headers: {
+        authorization: `Bearer ${apiKey}`
+      }
+    });
+    const cache = new InMemoryCache();
+    t.context.client = new ApolloClient({
+      link: httpLink,
+      cache
+    });
+  }
+);
+
+test('apollo-server-bweb can run as standalone server', async (t: ExecutionContext<
+  ApolloWebServerTestContext
+>) => {
+  const query = gql`query Transaction{}`;
+  const result = await t.context.client.query({ query });
+  // tslint:disable-next-line
+  console.log(result);
+  t.pass();
+});

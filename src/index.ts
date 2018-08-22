@@ -1,1 +1,1 @@
-export {ApolloServerBweb as ApolloServer} from './lib/apollo-server-bweb' ;
+export { ApolloServerBweb as ApolloServer } from './lib/apollo-server-bweb';
