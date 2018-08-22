@@ -1263,7 +1263,7 @@ bl@^1.0.0:
     readable-stream "^2.3.5"
     safe-buffer "^5.1.1"
 
-blgr@~0.1.0:
+blgr@^0.1.1, blgr@~0.1.0:
   version "0.1.1"
   resolved "https://registry.yarnpkg.com/blgr/-/blgr-0.1.1.tgz#20991ed44ae1cf01155b66ee982eee99a7cbe3ff"
   dependencies:

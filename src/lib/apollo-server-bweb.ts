@@ -1,6 +1,7 @@
 // tslint:disable object-literal-sort-keys
 import { ApolloServer, Request } from 'apollo-server';
 import { Chain, Mempool } from 'bcoin';
+import Logger, { LoggerContext } from 'blgr';
 import { Server } from 'bweb';
 import * as net from 'net';
 import { buildSchema } from 'type-graphql';
@@ -16,10 +17,18 @@ export class ApolloServerBweb {
   public chain: Chain;
   public mempool: Mempool;
   public resolvers: any[];
+  public logger: LoggerContext;
   constructor(options: ApolloServerBwebOption) {
     this.chain = options.chain;
     this.mempool = options.mempool;
     this.resolvers = options.resolvers;
+    this.logger = options.logger
+      ? options.logger.context('bgraphql')
+      : new Logger({ level: 'info', console: true }).context('bgraphql');
+    if (this.logger.close) {
+      this.logger.open();
+    }
+    this.logger.info('init graphql server');
   }
 
   public async open() {
@@ -42,11 +51,12 @@ export class ApolloServerBweb {
 
   /**
    * An method for running as a standalone server.
-   * It will listen to port 4000 with no arguments.
    * @param args - This will be passed directly to `http.createServer`
    */
   public async listen(args?: net.ListenOptions) {
-    await this.apolloServer.listen(args);
+    this.logger.info('bgraphql start listening as stand-alone server');
+    const info = await this.apolloServer.listen(args);
+    this.logger.debug(info);
   }
 
   public applyMiddleware({ app, path, cors }: ServerRegistration) {
@@ -69,6 +79,7 @@ export interface ApolloServerBwebOption {
   chain: Chain;
   mempool: Mempool;
   resolvers: any;
+  logger?: Logger;
 }
 
 export interface ServerRegistration {

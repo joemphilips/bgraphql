@@ -42,6 +42,7 @@ declare module 'blgr' {
   export interface LoggerOptions {
     level?: string | number;
     colors?: boolean;
+    console?: boolean;
     shrink?: boolean;
     closed?: boolean;
     closing?: boolean;

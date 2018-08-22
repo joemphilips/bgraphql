@@ -61,6 +61,7 @@
     "apollo-server": "^2.0.0",
     "apollo-server-core": "^2.0.4",
     "bcoin": "^1.0.2",
+    "blgr": "^0.1.1",
     "bsert": "^0.0.4",
     "bweb": "^0.1.2",
     "graphql": "^0.13.2",

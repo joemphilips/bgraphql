@@ -15,6 +15,7 @@ import { TransactionResolver } from './types/transaction';
 const networkName = 'regtest';
 const network = Network.get(networkName);
 const apiKey = 'foo';
+const port = 4000;
 
 // const fullNode = new FullNode(options);
 
@@ -48,7 +49,7 @@ test.before(
   'open http',
   async (t: ExecutionContext<ApolloWebServerTestContext>) => {
     await server.open();
-    await server.listen();
+    await server.listen({ port });
     t.context.schema = await buildSchema({ resolvers });
   }
 );
@@ -61,7 +62,7 @@ test.beforeEach(
   'prepare client',
   async (t: ExecutionContext<ApolloWebServerTestContext>) => {
     const httpLink = createHttpLink({
-      uri: '/graphql',
+      uri: 'http://localhost:4000/graphql',
       fetch: fetch as any,
       headers: {
         authorization: `Bearer ${apiKey}`
