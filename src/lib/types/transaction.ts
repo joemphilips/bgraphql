@@ -26,10 +26,11 @@ export class TransactionResolver {
   constructor(private mempool: Mempool, private chain: Chain) {}
 
   @Query(returns => Transaction)
-  async Transaction(@Arg('txid') txid: Buffer) {
-    let tx = await this.chain.getMeta(txid);
+  async Transaction(@Arg('txid') txid: string) {
+    const hash = Buffer.from(txid, 'hex');
+    let tx = await this.chain.getMeta(hash);
     if (!tx) {
-      tx = await this.mempool.getMeta(txid);
+      tx = await this.mempool.getMeta(hash);
       if (!tx) {
         throw new ResolverError();
       }

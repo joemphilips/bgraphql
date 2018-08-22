@@ -16,7 +16,7 @@ export class ApolloServerBweb {
   public chain: Chain;
   public mempool: Mempool;
   public resolvers: any[];
-  constructor(options: ApooloServerBwebOption) {
+  constructor(options: ApolloServerBwebOption) {
     this.chain = options.chain;
     this.mempool = options.mempool;
     this.resolvers = options.resolvers;
@@ -65,7 +65,7 @@ export class ApolloServerBweb {
   }
 }
 
-export interface ApooloServerBwebOption {
+export interface ApolloServerBwebOption {
   chain: Chain;
   mempool: Mempool;
   resolvers: any;

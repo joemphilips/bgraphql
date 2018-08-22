@@ -2,11 +2,12 @@
 import 'reflect-metadata';
 import { InMemoryCache } from 'apollo-cache-inmemory';
 import { ApolloClient } from 'apollo-client';
-import { HttpLink } from 'apollo-link-http';
+import { createHttpLink } from 'apollo-link-http';
 import { gql } from 'apollo-server-core';
 import anyTest, { ExecutionContext, TestInterface } from 'ava';
 import { Chain, Mempool, Network, WorkerPool } from 'bcoin';
 import { GraphQLSchema } from 'graphql';
+import fetch from 'node-fetch';
 import { buildSchema } from 'type-graphql';
 import { ApolloServerBweb } from './apollo-server-bweb';
 import { TransactionResolver } from './types/transaction';
@@ -59,8 +60,9 @@ test.after('close http', async () => {
 test.beforeEach(
   'prepare client',
   async (t: ExecutionContext<ApolloWebServerTestContext>) => {
-    const httpLink = new HttpLink({
-      uri: 'http://localhost:4000',
+    const httpLink = createHttpLink({
+      uri: '/graphql',
+      fetch: fetch as any,
       headers: {
         authorization: `Bearer ${apiKey}`
       }
@@ -76,7 +78,7 @@ test.beforeEach(
 test('apollo-server-bweb can run as standalone server', async (t: ExecutionContext<
   ApolloWebServerTestContext
 >) => {
-  const query = gql`query Transaction{}`;
+  const query = gql`query Transaction{ txid: "ffff" }`;
   const result = await t.context.client.query({ query });
   // tslint:disable-next-line
   console.log(result);
