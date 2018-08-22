@@ -78,7 +78,13 @@ test.beforeEach(
 test('apollo-server-bweb can run as standalone server', async (t: ExecutionContext<
   ApolloWebServerTestContext
 >) => {
-  const query = gql`query Transaction{ txid: "ffff" }`;
+  const query = gql`
+    query {
+      Transaction(txid: "ffff") {
+        outputs
+      }
+    }
+  `;
   const result = await t.context.client.query({ query });
   // tslint:disable-next-line
   console.log(result);
