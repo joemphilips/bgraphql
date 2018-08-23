@@ -24,7 +24,7 @@ export class ApolloServerBweb {
     this.resolvers = options.resolvers;
     this.logger = options.logger
       ? options.logger.context('bgraphql')
-      : new Logger({ level: 'info', console: true }).context('bgraphql');
+      : new Logger({ level: 'debug', console: true }).context('bgraphql');
     if (this.logger.close) {
       this.logger.open();
     }
@@ -71,7 +71,9 @@ export class ApolloServerBweb {
       app.use(app.cors());
     }
     // Note: ApolloServer is for
-    // app.use(path, async (req, res) => {})
+    app.use(path, async (req, res) => {
+      res.json(200);
+    });
   }
 }
 

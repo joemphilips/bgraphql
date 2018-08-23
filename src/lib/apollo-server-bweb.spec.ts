@@ -62,7 +62,7 @@ test.beforeEach(
   'prepare client',
   async (t: ExecutionContext<ApolloWebServerTestContext>) => {
     const httpLink = createHttpLink({
-      uri: 'http://localhost:4000/graphql',
+      uri: 'http://localhost:4000',
       fetch: fetch as any,
       headers: {
         authorization: `Bearer ${apiKey}`

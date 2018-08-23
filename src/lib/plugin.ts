@@ -10,26 +10,26 @@ export class Plugin extends EventEmitter
   public static init(node) {
     return new Plugin(node);
   }
+  public server: ApolloServerBweb;
 
   constructor(public node: FullNode) {
     super();
     bsert(node.http, 'node must have http interface');
-  }
-
-  public async open() {
     const resolvers = [TransactionResolver];
-    const server = new ApolloServerBweb({
+    this.server = new ApolloServerBweb({
       chain: this.node.chain,
       mempool: this.node.mempool,
       resolvers
     });
-    await server.open();
+  }
+
+  public async open() {
+    await this.server.open();
     // run server as middleware for full node
-    server.applyMiddleware({ app: this.node.http });
-    await this.node.open();
+    this.server.applyMiddleware({ app: this.node.http });
   }
 
   public async close() {
-    await this.node.close();
+    await this.server.close();
   }
 }
