@@ -76,7 +76,7 @@ test.beforeEach(
   }
 );
 
-test('apollo-server-bweb can run as standalone server', async (t: ExecutionContext<
+test('it should return null for non existent txid', async (t: ExecutionContext<
   ApolloWebServerTestContext
 >) => {
   const query = gql`
@@ -92,12 +92,20 @@ test('apollo-server-bweb can run as standalone server', async (t: ExecutionConte
   try {
     result = await t.context.client.query({ query });
   } catch (e) {
-    // tslint:disable-next-line
-    console.log(e);
-    // tslint:disable-next-line
-    console.log(e.networkError.result);
+    logError(e, t);
   }
-  // tslint:disable-next-line
-  console.log(result);
-  t.pass();
+  t.is(result.data.transactionById, null);
 });
+
+// ---- helpers -----
+function logError(e: any, t: any) {
+  // tslint:disable-next-line
+  t.log(e);
+  for (const i of e.graphQLErrors) {
+    t.log(i.extensions);
+    t.log(i.locations);
+    t.log(i.message);
+    t.log(i.path);
+  }
+  t.fail(e);
+}
