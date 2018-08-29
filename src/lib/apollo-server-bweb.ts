@@ -5,7 +5,6 @@ import Logger, { LoggerContext } from 'blgr';
 import { Server } from 'bweb';
 import * as net from 'net';
 import { buildSchema } from 'type-graphql';
-import { Container } from 'typedi';
 
 export interface Context extends Request {
   chain: Chain;
