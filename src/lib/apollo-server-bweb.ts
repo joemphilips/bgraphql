@@ -5,6 +5,7 @@ import Logger, { LoggerContext } from 'blgr';
 import { Server } from 'bweb';
 import * as net from 'net';
 import { buildSchema } from 'type-graphql';
+import { Container } from 'typedi';
 
 export interface Context extends Request {
   chain: Chain;
@@ -40,7 +41,11 @@ export class ApolloServerBweb {
     }
 
     const schema = await buildSchema({ resolvers: this.resolvers });
-    this.apolloServer = new ApolloServer({ schema });
+    this.apolloServer = new ApolloServer({
+      schema,
+      playground: true,
+      introspection: true
+    });
   }
 
   public async close() {
