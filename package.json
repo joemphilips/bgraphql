@@ -68,7 +68,8 @@
     "node-fetch": "^2.2.0",
     "reflect-metadata": "^0.1.12",
     "sha.js": "^2.4.11",
-    "type-graphql": "^0.13.1"
+    "type-graphql": "^0.13.1",
+    "typedi": "^0.8.0"
   },
   "devDependencies": {
     "ava": "^1.0.0-beta.5.1",
