@@ -1,5 +1,5 @@
 declare module 'btcp' {
-  import net from 'net';
+  import * as net from 'net';
   export const unsupported: boolean;
   export type Socket = net.Socket;
   export class Server {}
