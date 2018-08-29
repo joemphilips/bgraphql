@@ -81,12 +81,22 @@ test('apollo-server-bweb can run as standalone server', async (t: ExecutionConte
 >) => {
   const query = gql`
     query {
-      Transaction(txid: "ffff") {
-        outputs
+      transactionById(txid: "ffff") {
+        outputs {
+          address
+        }
       }
     }
   `;
-  const result = await t.context.client.query({ query });
+  let result;
+  try {
+    result = await t.context.client.query({ query });
+  } catch (e) {
+    // tslint:disable-next-line
+    console.log(e);
+    // tslint:disable-next-line
+    console.log(e.networkError.result);
+  }
   // tslint:disable-next-line
   console.log(result);
   t.pass();
