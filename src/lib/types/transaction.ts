@@ -1,7 +1,18 @@
 import { Chain, Mempool } from 'bcoin';
-import { Arg, Field, ID, ObjectType, Query, Resolver } from 'type-graphql';
+import {
+  Arg,
+  Field,
+  FieldResolver,
+  ID,
+  Int,
+  ObjectType,
+  Query,
+  Resolver,
+  ResolverInterface,
+  Root
+} from 'type-graphql';
 import { In } from './in';
-import { Out } from './out';
+import { Output } from './out';
 import { ResolverError } from './util';
 @ObjectType()
 export class Transaction {
@@ -11,30 +22,38 @@ export class Transaction {
   @Field()
   nSequence: number;
 
-  @Field()
+  @Field(type => Int)
   version: number;
 
   @Field(type => [In])
   inputs: In[];
 
-  @Field(type => [Out])
-  outputs: Out[];
+  @Field(type => [Output])
+  outputs: Output[];
 }
 
 @Resolver(Transaction)
-export class TransactionResolver {
-  constructor(private mempool: Mempool, private chain: Chain) {}
+export class TransactionResolver implements ResolverInterface<Transaction> {
+  constructor(
+    private readonly mempool: Mempool,
+    private readonly chain: Chain
+  ) {}
 
   @Query(returns => Transaction)
-  async Transaction(@Arg('txid') txid: string) {
+  async transactionById(@Arg('txid') txid: string) {
     const hash = Buffer.from(txid, 'hex');
-    let tx = await this.chain.getMeta(hash);
+    let tx = await this.chain.getTX(hash);
     if (!tx) {
-      tx = await this.mempool.getMeta(hash);
+      tx = await this.mempool.getTX(hash);
       if (!tx) {
         throw new ResolverError();
       }
     }
     return tx;
+  }
+
+  @FieldResolver()
+  async txid(@Root() tx: Transaction) {
+    return tx.txid;
   }
 }

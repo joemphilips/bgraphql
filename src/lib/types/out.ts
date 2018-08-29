@@ -1,10 +1,13 @@
-import { Field, ObjectType } from 'type-graphql';
+import { Field, ObjectType, Resolver } from 'type-graphql';
 
 @ObjectType()
-export class Out {
+export class Output {
   @Field()
   index: number;
 
   @Field()
   address: string;
 }
+
+@Resolver(Output)
+export class OutputResolver {}
