@@ -12,13 +12,18 @@ declare module 'bcfg' {
     public suffix?: string;
     public fallback?: string;
     public alias?: object;
+    // ------ configuration will be parsed and set to these fields----
+    // ------ Usually You can get by `this.get()`
     public data?: object;
-    public env?: object;
-    public args?: object;
     public argv?: any[];
     public pass?: any[];
+    // ------- these are options you can inject by `this.load()` -------
+    public env?: object;
+    public args?: object;
     public query?: object;
     public hash?: object;
+    // ---------------------------------
+
     /**
      * Config will read from environment variable prefixed by `toUpper(module)`
      * Only if you run `config.load({argv: true})`
@@ -40,11 +45,11 @@ declare module 'bcfg' {
      * - argv ... process.argv
      * @param options
      */
-    load(options: {
-      hash: string | true;
-      env: object | true;
-      argv: object | true;
-      query: string | true;
+    load(options?: {
+      hash?: string | true;
+      env?: object | true;
+      argv?: object | true;
+      query?: string | true;
     });
     /**
      * load from file
@@ -63,7 +68,7 @@ declare module 'bcfg' {
      */
     set(key: string, value: object): void;
     has(key: string): boolean;
-    get(key: string, fallback: object): any;
+    get(key: string, fallback?: object): any;
     typeof(key: string): string;
     /**
      * get config option as a string
@@ -96,6 +101,7 @@ declare module 'bcfg' {
   export type ConfigOption = Partial<{
     suffix: string;
     fallback: string;
+    sslKey: string;
     alias: {
       [key: string]: string;
     };
