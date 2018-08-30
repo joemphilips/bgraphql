@@ -1,3 +1,7 @@
+// Type definitions for bcfg 0.1.2
+// Project: https://github.com/bcoin-org/bcfg
+// Definitions by: Joe Miyamoto <joemphilips@gmail.com>
+
 declare module 'bcfg' {
   export default class Config {
     /**

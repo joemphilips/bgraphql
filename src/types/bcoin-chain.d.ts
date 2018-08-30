@@ -1,3 +1,7 @@
+// Type definitions for bcoin 1.0.2
+// Project: https://github.com/bcoin-org/bcoin
+// Definitions by: Joe Miyamoto <joemphilips@gmail.com>
+
 declare module 'bcoin' {
   import AsyncEmitter from 'bevent';
   import Logger, { LoggerContext } from 'blgr';
@@ -152,7 +156,7 @@ declare module 'bcoin' {
        */
       public has(hash: Buffer): Promise<boolean>;
       public getEntry(hashOrHeight: Buffer | number): ChainEntry | null;
-      public getHash(height: number): Buffer | null;
+      public getHash(height: number | Buffer): Buffer | null;
       public getHeight(hash: Buffer): number;
       public hasEntry(hash: Buffer): Promise<boolean>;
       public getNextHash(hash: Buffer): Promise<Buffer | null>;
@@ -161,8 +165,8 @@ declare module 'bcoin' {
       public getHashes(start?: number, end?: number): Promise<Buffer[] | null>;
       private readCoin(prevOut: Outpoint): Promise<CoinEntry | null>;
       public getCoin(hash: Buffer, index: number): Promise<Coin | null>;
-      public getBlock(hash: Buffer): Promise<Block | null>;
-      public getRawBlock(hash: Buffer): Promise<Buffer | null>;
+      public getBlock(hash: Buffer | number): Promise<Block | null>;
+      public getRawBlock(hash: Buffer | number): Promise<Buffer | null>;
       public getBlockView(block: Block): Promise<CoinView>;
       public getMeta(hash: Buffer): Promise<primitives.TXMeta | null>;
       public getTX(hash: Buffer): Promise<primitives.TX | null>;
