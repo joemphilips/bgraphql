@@ -1,3 +1,7 @@
+// Type definitions for bcoin 1.0.2
+// Project: https://github.com/bcoin-org/bcoin
+// Definitions by: Joe Miyamoto <joemphilips@gmail.com>
+
 declare module 'bcoin' {
   import { DB, Batch } from 'bdb';
   import Logger, { LoggerContext } from 'blgr';
@@ -10,10 +14,34 @@ declare module 'bcoin' {
       decay: number;
       maxConfirms: number;
       buckets: Float64Array;
-      bucketMap: DoubleMap;
-      confAvg: number[];
-      curBlockConf: number[];
-      unconfTX: number[];
+      /**
+       * DoubleMap of Float64 and id
+       * key is feeRate, and Value is bucket index
+       */
+      bucketMap: DoubleMap<number, number>;
+
+      // ------ These three fields have an length same with the ------
+      // ------- longest block interval we care -----
+      // -------- second index is bucket ------
+      confAvg: number[][];
+      /**
+       * First index is
+       */
+      curBlockConf: number[][];
+      /**
+       * TXs those we are tracking.
+       * It is seen on mempool, but not included yet in block.
+       * First index is the block height which has been found.
+       * Second index is the bucket.
+       */
+      unconfTX: number[][];
+      // ---------------------------------
+
+      /**
+       * Index is bucket.
+       * This will be used in estimate Median.
+       * It seems the function will use the last TX swipe from bucket.
+       */
       oldUnconfTx: Int32Array;
       curBlockTX: Int32Array;
       txAvg: Float64Array;
@@ -22,17 +50,42 @@ declare module 'bcoin' {
       logger?: LoggerContext;
       constructor(type: string, logger?: Logger);
       init(buckets: any[], maxConfirms: number, decay: number);
+      /**
+       * Clear data for the current block.
+       * This will be called when new block Arrived.
+       * @param height - number
+       */
       clearCurrent(height: number): void;
-      record(blocks: number, val: Rate | number): void;
+      /**
+       * record a rate or priority based on number of blocks to confirm.
+       * @param blocks
+       * @param val
+       */
+      record(blocks: number, val: Rate): void;
       updateAverages(): void;
+      /**
+       * Estimate the median value for rate or priority.
+       * Used from `Fee.estimateFee` or `Fee.processBlock`
+       * @param target - number
+       * @param needed - number
+       * @param breakpoint
+       * @param greater
+       * @param height
+       */
       estimateMedian(
         target: number,
         needed: number,
         breakpoint: number,
         greater: boolean,
         height: number
-      ): Rate | number;
-      addTX(height: number, val: number): number;
+      ): Rate;
+      /**
+       *
+       * @param height - block height which it has been found.
+       * @param val - feeRate. Satoshi/KB
+       * @returns bucket index for the val.
+       */
+      addTX(height: number, val: Rate): number;
       removeTX(
         entryHeight: number,
         bestHeight: number,
@@ -44,11 +97,11 @@ declare module 'bcoin' {
       static fromRaw(data: Buffer, type: string, logger?: Logger): ConfirmStats;
     }
 
-    class DoubleMap {
-      public buckets: any[][];
+    class DoubleMap<K = any, V = any> {
+      public buckets: [K, V][];
       constructor();
-      insert(key, value): void;
-      search(key: string): any;
+      insert(key: K, value: V): void;
+      search(key: K): V;
     }
 
     class PolicyEstimator {
@@ -64,16 +117,37 @@ declare module 'bcoin' {
       feeLikely: number;
       priUnlikely: number;
       priLikely: number;
-      map: BufferMap;
+      map: BufferMap<StatEntry>;
       bestHeight: number;
       constructor(logger?: Logger);
       private init(): void;
       private reset(): void;
       private removeTX(hash: HashKey): void;
-      isFeePoint(fee: Amount, priority: number): boolean;
-      isPriPoint(fee: Amount, priority: number): boolean;
+      /**
+       *
+       * @param fee test whether a fee should be used for calculation.
+       * @param priority
+       */
+      private isFeePoint(fee: Amount, priority: number): boolean;
+      private isPriPoint(fee: Amount, priority: number): boolean;
+      /**
+       * if it isFeePoint, then add to this.feeStats and this.map
+       * @param entry
+       * @param current - whether a chain is synced. If not, do nothing.
+       */
       processTX(entry: MempoolEntry, current: boolean): void;
-      processBlockTX(height: number, entry: MempoolEntry): void;
+      /**
+       * Process an entry being removed from the mempool.
+       * @param height
+       * @param entry
+       */
+      private processBlockTX(height: number, entry: MempoolEntry): void;
+      /**
+       * P
+       * @param height
+       * @param entries
+       * @param current - Whether the chain is synced. If not, do nothing.
+       */
       processBlock(
         height: number,
         entries: MempoolEntry[],
@@ -86,6 +160,11 @@ declare module 'bcoin' {
       fromRaw(data: Buffer): ConfirmStats;
       static fromRaw(data: Buffer, logger?: Logger): ConfirmStats;
       inject(estimator: PolicyEstimator): PolicyEstimator;
+    }
+
+    interface StatEntry {
+      blockHeight?: number;
+      bucketIndex?: number;
     }
 
     export class Fees extends PolicyEstimator {}
@@ -279,7 +358,13 @@ declare module 'bcoin' {
     }
 
     class TXIndex {
+      /**
+       * address hash -> entries
+       */
       index: BufferMap;
+      /**
+       * txid -> address hashes
+       */
       map: BufferMap;
       constructor();
       reset(): void;

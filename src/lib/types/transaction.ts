@@ -1,4 +1,3 @@
-import { Chain, Mempool } from 'bcoin';
 import {
   Arg,
   Field,
@@ -13,7 +12,8 @@ import {
 } from 'type-graphql';
 import { In } from './in';
 import { Output } from './out';
-import { ResolverError } from './util';
+import { ChainService } from '../service/chain';
+import { MempoolService } from '../service/mempool';
 @ObjectType()
 export class Transaction {
   @Field(type => ID)
@@ -35,18 +35,18 @@ export class Transaction {
 @Resolver(Transaction)
 export class TransactionResolver implements ResolverInterface<Transaction> {
   constructor(
-    private readonly mempool: Mempool,
-    private readonly chain: Chain
+    private readonly mempool: MempoolService,
+    private readonly chain: ChainService
   ) {}
 
-  @Query(returns => Transaction)
+  @Query(returns => Transaction, { nullable: true })
   async transactionById(@Arg('txid') txid: string) {
     const hash = Buffer.from(txid, 'hex');
     let tx = await this.chain.getTX(hash);
     if (!tx) {
       tx = await this.mempool.getTX(hash);
       if (!tx) {
-        throw new ResolverError();
+        return null;
       }
     }
     return tx;

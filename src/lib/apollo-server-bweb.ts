@@ -4,8 +4,8 @@ import { Chain, Mempool } from 'bcoin';
 import Logger, { LoggerContext } from 'blgr';
 import { Server } from 'bweb';
 import * as net from 'net';
-import { buildSchema } from 'type-graphql';
-
+import { buildSchema, useContainer } from 'type-graphql';
+import { Container } from 'typedi';
 export interface Context extends Request {
   chain: Chain;
   mempool: Mempool;
@@ -29,6 +29,9 @@ export class ApolloServerBweb {
       this.logger.open();
     }
     this.logger.info('init graphql server');
+    useContainer(Container);
+    Container.set('MEMPOOL', this.mempool);
+    Container.set('CHAIN', this.chain);
   }
 
   public async open() {

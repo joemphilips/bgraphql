@@ -1,3 +1,6 @@
+// Type definitions for bcoin 1.0.2
+// Project: https://github.com/bcoin-org/bcoin
+// Definitions by: Joe Miyamoto <joemphilips@gmail.com>
 declare module 'bcoin' {
   import { EventEmitter } from 'events';
   import Logger, { LoggerContext } from 'blgr';
