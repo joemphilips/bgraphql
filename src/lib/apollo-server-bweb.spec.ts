@@ -5,12 +5,13 @@ import { ApolloClient } from 'apollo-client';
 import { createHttpLink } from 'apollo-link-http';
 import { gql } from 'apollo-server-core';
 import anyTest, { ExecutionContext, TestInterface } from 'ava';
-import { Chain, Mempool, Network, WorkerPool } from 'bcoin';
+import { Chain, Mempool, Network, WorkerPool, Miner, Block } from 'bcoin';
 import { GraphQLSchema } from 'graphql';
 import fetch from 'node-fetch';
 import { buildSchema } from 'type-graphql';
 import { ApolloServerBweb } from './apollo-server-bweb';
 import { TransactionResolver } from './types/transaction';
+import { prepareChain } from './helpers';
 
 const networkName = 'regtest';
 const network = Network.get(networkName);
@@ -32,6 +33,13 @@ const options = {
 const chain = new Chain({
   ...options
 });
+
+const miner = new Miner({
+  chain,
+  version: 4,
+  workers
+});
+
 const mempool = new Mempool({ chain, ...options });
 
 const resolvers = [TransactionResolver];
@@ -41,6 +49,7 @@ const server = new ApolloServerBweb({ chain, mempool, resolvers });
 interface ApolloWebServerTestContext {
   schema: GraphQLSchema;
   client: ApolloClient<any>;
+  prepareChainResult: [Block, string];
 }
 
 const test = anyTest as TestInterface<ApolloWebServerTestContext>;
@@ -51,6 +60,7 @@ test.before(
     await server.open();
     await server.listen({ port });
     t.context.schema = await buildSchema({ resolvers });
+    t.context.prepareChainResult = await prepareChain(chain, miner);
   }
 );
 
@@ -95,6 +105,28 @@ test('it should return null for non existent txid', async (t: ExecutionContext<
     logError(e, t);
   }
   t.is(result.data.transactionById, null);
+});
+
+test('it should respond by tx when queried by txid', async (t: ExecutionContext<
+  ApolloWebServerTestContext
+>) => {
+  const txid = t.context.prepareChainResult[1];
+  const query = gql`
+    query {
+      transactionById(txid: "${txid}") {
+        outputs {
+          address
+        }
+      }
+    }
+  `;
+  let result;
+  try {
+    result = await t.context.client.query({ query });
+  } catch (e) {
+    logError(e, t);
+  }
+  t.truthy(result.data.transactionById);
 });
 
 // ---- helpers -----
